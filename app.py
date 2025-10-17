@@ -42,11 +42,27 @@ if uploaded_file and columns:
                         r = requests.get(link, timeout=10)
                         r.raise_for_status()
                         img = Image.open(BytesIO(r.content)).convert("RGB")
-                        img.thumbnail((width, height), Image.LANCZOS)
-                        new_img = Image.new("RGB", (width, height), (255,255,255))
-                        left = (width - img.width) // 2
-                        top = (height - img.height) // 2
-                        new_img.paste(img, (left, top))
+
+                        # --- Smart resize to always fill the box, scaling up or down as needed ---
+                        img_ratio = img.width / img.height
+                        box_ratio = width / height
+
+                        if img_ratio > box_ratio:
+                            # Fit width
+                            new_width = width
+                            new_height = int(width / img_ratio)
+                        else:
+                            # Fit height
+                            new_height = height
+                            new_width = int(height * img_ratio)
+
+                        img_resized = img.resize((new_width, new_height), Image.LANCZOS)
+
+                        new_img = Image.new("RGB", (width, height), (255, 255, 255))
+                        left = (width - new_width) // 2
+                        top = (height - new_height) // 2
+                        new_img.paste(img_resized, (left, top))
+
                         file_jpg = str(filename)
                         if not file_jpg.lower().endswith('.jpg'):
                             file_jpg = os.path.splitext(file_jpg)[0] + '.jpg'
@@ -60,3 +76,4 @@ if uploaded_file and columns:
         zip_path = shutil.make_archive(output_dir, 'zip', output_dir)
         with open(zip_path, 'rb') as f:
             st.download_button('Download All Images (ZIP)', f, file_name='downloaded_images.zip')
+
