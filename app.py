@@ -1,64 +1,56 @@
+import streamlit as st
 import pandas as pd
 import requests
-import os
 from PIL import Image
 from io import BytesIO
+import os
 import shutil
+import tempfile
 
-# ===================== USER SETTINGS =====================
-excel_file = '/content/file.xlsx'   # Path to your Excel file
+st.title("Bulk Image Downloader, Resizer & Padder")
 
-# List your (filename, link) pairs as per your Excel headers here:
-column_pairs = [
-    ('FileName1', 'ImageLink1'),
-    ('FileName2', 'ImageLink2'),
-    # Add more pairs as needed
-]
-# =========================================================
+st.write("""
+Upload your Excel file containing image file names and links in pairs of columns.  
+E.g., columns: 'FileName1', 'ImageLink1', 'FileName2', 'ImageLink2', ...
+""")
 
-output_folder = 'downloaded_images'
-os.makedirs(output_folder, exist_ok=True)
-resize_to = (2200, 2200)
-df = pd.read_excel(excel_file)
+uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
+columns = st.text_input(
+    "List your filename and link column pairs, separated by commas (e.g. FileName1,ImageLink1,FileName2,ImageLink2):"
+)
+resize_dim = st.number_input("Resize and pad to size (pixels; e.g. 2200):", min_value=1, value=2200)
 
-for idx, row in df.iterrows():
-    for filename_col, link_col in column_pairs:
-        filename = row.get(filename_col)
-        link = row.get(link_col)
-        if pd.notna(filename) and pd.notna(link):
-            try:
-                response = requests.get(link, timeout=10)
-                response.raise_for_status()
-                img = Image.open(BytesIO(response.content)).convert("RGB")
-                # Resize, maintain aspect ratio & pad with white
-                img.thumbnail(resize_to, Image.LANCZOS)
-                new_img = Image.new("RGB", resize_to, (255, 255, 255))
-                left = (resize_to[0] - img.width) // 2
-                top = (resize_to[1] - img.height) // 2
-                new_img.paste(img, (left, top))
-                # Ensure .jpg extension
-                file_jpg = str(filename)
-                if not file_jpg.lower().endswith('.jpg'):
-                    file_jpg = os.path.splitext(file_jpg)[0] + '.jpg'
-                new_img.save(os.path.join(output_folder, file_jpg), format='JPEG')
-                print(f"Downloaded, resized, and saved: {file_jpg}")
-            except Exception as e:
-                print(f"Failed {filename} from {link}: {e}")
-
-print("All downloads and conversions complete.")
-
-# ======== Remove non-JPG files from the output folder ========
-for fname in os.listdir(output_folder):
-    if not fname.lower().endswith('.jpg'):
-        os.remove(os.path.join(output_folder, fname))
-
-# ========== ZIP the images folder ==========
-shutil.make_archive(output_folder, 'zip', output_folder)
-print(f"Zipped folder as {output_folder}.zip")
-
-# ========== Google Colab/Jupyter: offer download ==========
-try:
-    from google.colab import files
-    files.download(f"{output_folder}.zip")
-except ImportError:
-    print("If not using Colab, manually download 'downloaded_images.zip' from your workspace.")
+if uploaded_file and columns:
+    # Put everything inside this IF block!
+    df = pd.read_excel(uploaded_file)
+    column_pairs = [x.strip() for x in columns.split(",")]
+    if len(column_pairs) % 2 != 0:
+        st.error("Please provide pairs of filename and link columns.")
+    else:
+        pairs = [(column_pairs[i], column_pairs[i+1]) for i in range(0, len(column_pairs), 2)]
+        tempdir = tempfile.mkdtemp()
+        output_dir = os.path.join(tempdir, "downloaded_images")
+        os.makedirs(output_dir, exist_ok=True)
+        for idx, row in df.iterrows():
+            for fn_col, link_col in pairs:
+                filename = row.get(fn_col)
+                link = row.get(link_col)
+                if pd.notna(filename) and pd.notna(link):
+                    try:
+                        r = requests.get(link, timeout=10)
+                        r.raise_for_status()
+                        img = Image.open(BytesIO(r.content)).convert("RGB")
+                        img.thumbnail((resize_dim, resize_dim), Image.LANCZOS)
+                        new_img = Image.new("RGB", (resize_dim, resize_dim), (255,255,255))
+                        left = (resize_dim - img.width)//2
+                        top = (resize_dim - img.height)//2
+                        new_img.paste(img, (left, top))
+                        file_jpg = str(filename)
+                        if not file_jpg.lower().endswith('.jpg'):
+                            file_jpg = os.path.splitext(file_jpg)[0] + '.jpg'
+                        new_img.save(os.path.join(output_dir, file_jpg), "JPEG")
+                    except Exception as e:
+                        st.write(f"Failed {filename} from {link}: {e}")
+        zip_path = shutil.make_archive(output_dir, 'zip', output_dir)
+        with open(zip_path, 'rb') as f:
+            st.download_button('Download All Images (ZIP)', f, file_name='downloaded_images.zip')
