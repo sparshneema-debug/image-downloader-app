@@ -8,7 +8,7 @@ import shutil
 import tempfile
 
 st.title("Bulk Image Downloader, Resizer & Padder")
-st.markdown("**Made by Sparsh Neema**")   # <--- Your name here
+st.markdown("**Made by Sparsh Neema**")
 
 st.write("""
 Upload your Excel file containing image file names and links in pairs of columns.  
@@ -19,7 +19,9 @@ uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 columns = st.text_input(
     "List your filename and link column pairs, separated by commas (e.g. FileName1,ImageLink1,FileName2,ImageLink2):"
 )
-resize_dim = st.number_input("Resize and pad to size (pixels; e.g. 2200):", min_value=1, value=2200)
+width = st.number_input("Resize WIDTH (pixels)", min_value=1, value=2200)
+height = st.number_input("Resize HEIGHT (pixels)", min_value=1, value=2200)
+dpi = st.number_input("DPI for saved JPG (web = 72, print = 300 is common)", min_value=1, value=72)
 
 if uploaded_file and columns:
     column_pairs = [x.strip() for x in columns.split(",")]
@@ -40,15 +42,19 @@ if uploaded_file and columns:
                         r = requests.get(link, timeout=10)
                         r.raise_for_status()
                         img = Image.open(BytesIO(r.content)).convert("RGB")
-                        img.thumbnail((resize_dim, resize_dim), Image.LANCZOS)
-                        new_img = Image.new("RGB", (resize_dim, resize_dim), (255,255,255))
-                        left = (resize_dim - img.width)//2
-                        top = (resize_dim - img.height)//2
+                        img.thumbnail((width, height), Image.LANCZOS)
+                        new_img = Image.new("RGB", (width, height), (255,255,255))
+                        left = (width - img.width) // 2
+                        top = (height - img.height) // 2
                         new_img.paste(img, (left, top))
                         file_jpg = str(filename)
                         if not file_jpg.lower().endswith('.jpg'):
                             file_jpg = os.path.splitext(file_jpg)[0] + '.jpg'
-                        new_img.save(os.path.join(output_dir, file_jpg), "JPEG")
+                        new_img.save(
+                            os.path.join(output_dir, file_jpg),
+                            "JPEG",
+                            dpi=(dpi, dpi)
+                        )
                     except Exception as e:
                         st.write(f"Failed {filename} from {link}: {e}")
         zip_path = shutil.make_archive(output_dir, 'zip', output_dir)
