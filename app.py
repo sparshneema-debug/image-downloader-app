@@ -8,6 +8,7 @@ import shutil
 import tempfile
 
 st.title("Bulk Image Downloader, Resizer & Padder")
+st.markdown("**Made by Sparsh Neema**")   # <--- Your name here
 
 st.write("""
 Upload your Excel file containing image file names and links in pairs of columns.  
@@ -21,8 +22,6 @@ columns = st.text_input(
 resize_dim = st.number_input("Resize and pad to size (pixels; e.g. 2200):", min_value=1, value=2200)
 
 if uploaded_file and columns:
-    # Put everything inside this IF block!
-    df = pd.read_excel(uploaded_file)
     column_pairs = [x.strip() for x in columns.split(",")]
     if len(column_pairs) % 2 != 0:
         st.error("Please provide pairs of filename and link columns.")
@@ -31,6 +30,7 @@ if uploaded_file and columns:
         tempdir = tempfile.mkdtemp()
         output_dir = os.path.join(tempdir, "downloaded_images")
         os.makedirs(output_dir, exist_ok=True)
+        df = pd.read_excel(uploaded_file)
         for idx, row in df.iterrows():
             for fn_col, link_col in pairs:
                 filename = row.get(fn_col)
