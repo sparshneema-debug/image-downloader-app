@@ -149,4 +149,4 @@ if st.button("🚀 Process Images"):
 
     progress_bar.empty()
 
-st.caption("Built by Pattern Chat • JPG outputs • Custom DPI • Custom margins (cm) supported.")
+st.caption("Made by Sparsh Neema")
