@@ -7,14 +7,23 @@ from io import BytesIO
 import shutil
 
 st.title("Bulk Image Downloader and Converter (.JPG only)")
-st.write("Upload your Excel file with image links. All outputs will be .jpg files.")
+st.write("Upload images directly or upload an Excel file with image links. All outputs will be .jpg files.")
 
-uploaded_file = st.file_uploader("Upload Excel file (.xlsx)", type=["xlsx"])
+with st.expander("1. Directly upload images"):
+    uploaded_images = st.file_uploader(
+        "Upload one or more images",
+        type=['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff'],
+        accept_multiple_files=True
+    )
 
-col1 = st.text_input("First FileName column", value="FileName1")
-link1 = st.text_input("First ImageLink column", value="ImageLink1")
-col2 = st.text_input("Second FileName column (optional)", value="")
-link2 = st.text_input("Second ImageLink column (optional)", value="")
+st.markdown("---")
+
+with st.expander("2. Or upload an Excel file with image links"):
+    uploaded_file = st.file_uploader("Excel file (.xlsx)", type=["xlsx"])
+    col1 = st.text_input("First FileName column", value="FileName1")
+    link1 = st.text_input("First ImageLink column", value="ImageLink1")
+    col2 = st.text_input("Second FileName column (optional)", value="")
+    link2 = st.text_input("Second ImageLink column (optional)", value="")
 
 output_width = st.number_input("Output width (px)", value=2200)
 output_height = st.number_input("Output height (px)", value=2200)
@@ -41,6 +50,18 @@ def process_image(image, file_name):
 if st.button("Process Images"):
     images_processed = 0
     processed_files = []
+
+    # 1. Process directly uploaded images
+    if uploaded_images:
+        for img_file in uploaded_images:
+            try:
+                out_path = process_image(img_file, img_file.name)
+                processed_files.append(out_path)
+                images_processed += 1
+            except Exception as e:
+                st.warning(f"Failed image upload {img_file.name}: {e}")
+
+    # 2. Process images from Excel links
     if uploaded_file is not None:
         try:
             df = pd.read_excel(uploaded_file)
@@ -63,19 +84,23 @@ if st.button("Process Images"):
                             images_processed += 1
                         except Exception as e:
                             st.warning(f"Failed: {filename} from {link}: {e}")
-            for fname in os.listdir(output_folder):
-                if not fname.lower().endswith('.jpg'):
-                    os.remove(os.path.join(output_folder, fname))
-            zip_path = shutil.make_archive(output_folder, 'zip', output_folder)
-            with open(zip_path, "rb") as zf:
-                st.success(f"Done! Processed {images_processed} images.")
-                st.download_button(
-                    "Download all as ZIP",
-                    data=zf,
-                    file_name="downloaded_images.zip",
-                    mime="application/zip"
-                )
         except Exception as e:
             st.error(f"Error processing Excel: {e}")
+
+    # Remove non-JPG files (safety; should not be needed)
+    for fname in os.listdir(output_folder):
+        if not fname.lower().endswith('.jpg'):
+            os.remove(os.path.join(output_folder, fname))
+
+    if images_processed > 0:
+        zip_path = shutil.make_archive(output_folder, 'zip', output_folder)
+        with open(zip_path, "rb") as zf:
+            st.success(f"Done! Processed {images_processed} images.")
+            st.download_button(
+                "Download all as ZIP",
+                data=zf,
+                file_name="downloaded_images.zip",
+                mime="application/zip"
+            )
     else:
-        st.warning("Please upload your Excel file to start.")
+        st.info("No images processed yet. Upload or select files and try again!")
