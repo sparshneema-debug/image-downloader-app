@@ -45,14 +45,28 @@ st.header("③ Image Output Settings")
 output_width = st.number_input("Output width (pixels)", min_value=100, max_value=5000, value=2200, step=10)
 output_height = st.number_input("Output height (pixels)", min_value=100, max_value=5000, value=2200, step=10)
 output_dpi = st.number_input("DPI", min_value=50, max_value=1200, value=300, step=1)
-margin_cm = st.number_input(
-    "Margin (in cm, on all sides)",
-    min_value=0.0,
-    max_value=10.0,
-    value=0.5,
-    step=0.1,
-    help="Leave 0 for no margin. Margin is applied as a white border."
+
+resize_mode = st.radio(
+    "Image Processing Mode",
+    [
+        "Resize with Padding",
+        "Resize without Padding"
+    ],
+    index=0,
+    horizontal=True
 )
+
+margin_cm = 0.0
+
+if resize_mode == "Resize with Padding":
+    margin_cm = st.number_input(
+        "Margin (in cm, on all sides)",
+        min_value=0.0,
+        max_value=10.0,
+        value=0.5,
+        step=0.1,
+        help="Leave 0 for no margin. Margin is applied as a white border."
+    )
 
 def cm_to_pixels(cm, dpi):
     return int((cm / 2.54) * dpi)
@@ -76,23 +90,40 @@ def get_unique_filename(output_folder, base_name, ext=".jpg"):
 
     return file_path
 
-def process_image(image_source, file_name, margin_px, output_folder, output_width, output_height, output_dpi):
+def process_image(
+    image_source,
+    file_name,
+    margin_px,
+    output_folder,
+    output_width,
+    output_height,
+    output_dpi,
+    resize_mode
+):
     img = Image.open(image_source).convert("RGB")
-
-    inner_width = max(1, output_width - 2 * margin_px)
-    inner_height = max(1, output_height - 2 * margin_px)
-
-    img.thumbnail((inner_width, inner_height), Image.LANCZOS)
-
-    canvas = Image.new("RGB", (output_width, output_height), (255, 255, 255))
-    left = (output_width - img.width) // 2
-    top = (output_height - img.height) // 2
-    canvas.paste(img, (left, top))
 
     base_name = os.path.splitext(str(file_name))[0]
     out_path = get_unique_filename(output_folder, base_name, ".jpg")
 
-    canvas.save(out_path, format="JPEG", dpi=(output_dpi, output_dpi), quality=95)
+    if resize_mode == "Resize with Padding":
+        inner_width = max(1, output_width - 2 * margin_px)
+        inner_height = max(1, output_height - 2 * margin_px)
+
+        img.thumbnail((inner_width, inner_height), Image.LANCZOS)
+
+        canvas = Image.new("RGB", (output_width, output_height), (255, 255, 255))
+
+        left = (output_width - img.width) // 2
+        top = (output_height - img.height) // 2
+
+        canvas.paste(img, (left, top))
+
+        canvas.save(out_path, format="JPEG", dpi=(output_dpi, output_dpi), quality=95)
+
+    else:
+        img.thumbnail((output_width, output_height), Image.LANCZOS)
+        img.save(out_path, format="JPEG", dpi=(output_dpi, output_dpi), quality=95)
+
     return out_path
 
 st.divider()
@@ -142,7 +173,8 @@ if st.button("🚀 Process Images"):
                     output_folder,
                     int(output_width),
                     int(output_height),
-                    int(output_dpi)
+                    int(output_dpi),
+                    resize_mode
                 )
                 images_processed += 1
             except Exception as e:
@@ -171,7 +203,8 @@ if st.button("🚀 Process Images"):
                                 output_folder,
                                 int(output_width),
                                 int(output_height),
-                                int(output_dpi)
+                                int(output_dpi),
+                                resize_mode
                             )
                             images_processed += 1
                         except Exception as e:
