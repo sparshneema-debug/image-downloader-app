@@ -6,30 +6,31 @@ from PIL import Image, ImageChops
 from io import BytesIO
 import shutil
 
-st.set_page_config(page_title="Image Downloader & Converter", layout="centered")
+try:
+    from rembg import remove
+    REMBG_AVAILABLE = True
+except Exception:
+    REMBG_AVAILABLE = False
+
+st.set_page_config(page_title="Complete Image Tool", layout="centered")
 
 st.title("🖼️ Complete Image Downloader & Converter")
 st.markdown("""
 Upload images directly **or** provide an Excel file with image links.  
-Resize, crop, zoom, change background color, convert format, preview, and download as ZIP.
+Resize, crop, zoom, remove background, check Amazon compliance, preview, and download ZIP.
 """)
 
 st.header("① Directly Upload Images")
 uploaded_images = st.file_uploader(
-    "Drag and drop or browse for images (multiple allowed)",
+    "Drag and drop or browse for images",
     type=["jpg", "jpeg", "png", "webp", "bmp", "tiff"],
-    accept_multiple_files=True,
-    key="direct_upload"
+    accept_multiple_files=True
 )
 
 st.divider()
 
 st.header("② Or Upload Excel File with Image Links")
-uploaded_file = st.file_uploader(
-    "Excel file (.xlsx)",
-    type=["xlsx"],
-    key="excel_upload"
-)
+uploaded_file = st.file_uploader("Excel file (.xlsx)", type=["xlsx"])
 
 col1, col2 = st.columns(2)
 with col1:
@@ -43,81 +44,63 @@ st.divider()
 
 st.header("③ Image Output Settings")
 
-output_width = st.number_input("Output width (pixels)", min_value=100, max_value=5000, value=2200, step=10)
-output_height = st.number_input("Output height (pixels)", min_value=100, max_value=5000, value=2200, step=10)
-output_dpi = st.number_input("DPI", min_value=50, max_value=1200, value=300, step=1)
+output_width = st.number_input("Output width", 100, 5000, 2200, 10)
+output_height = st.number_input("Output height", 100, 5000, 2200, 10)
+output_dpi = st.number_input("DPI", 50, 1200, 300, 1)
 
-output_format = st.selectbox(
-    "Output Format",
-    ["JPG", "PNG", "WEBP"],
-    index=0
-)
+output_format = st.selectbox("Output Format", ["JPG", "PNG", "WEBP"])
+quality = st.slider("Image Quality", 40, 100, 95)
 
-quality = st.slider(
-    "Image Quality",
-    min_value=40,
-    max_value=100,
-    value=95,
-    step=1,
-    help="Applies to JPG and WEBP. Higher quality = larger file size."
-)
-
-background_color = st.color_picker(
-    "Background Color",
-    value="#FFFFFF"
-)
+background_color = st.color_picker("Background Color", "#FFFFFF")
 
 resize_mode = st.radio(
     "Image Processing Mode",
-    [
-        "Resize with Padding",
-        "Resize without Padding"
-    ],
-    index=0,
+    ["Resize with Padding", "Resize without Padding"],
     horizontal=True
 )
 
+remove_background = st.checkbox(
+    "Remove Background using rembg",
+    value=False,
+    help="Best for product images. For transparent output, choose PNG."
+)
+
+if remove_background and not REMBG_AVAILABLE:
+    st.error("rembg is not installed. Add rembg and onnxruntime to requirements.txt")
+
 crop_white = False
-enlarge_image = False
-zoom_percent = 100
+auto_fill_enabled = False
+fill_percent = 90
 margin_cm = 0.0
 
 if resize_mode == "Resize with Padding":
-    crop_white = st.checkbox(
-        "Crop White Background",
+    crop_white = st.checkbox("Crop White Background", value=True)
+
+    auto_fill_enabled = st.checkbox(
+        "Auto Fill Canvas",
         value=True,
-        help="Removes extra white space around the product before resizing."
+        help="Automatically sizes product to fill selected canvas percentage."
     )
 
-    enlarge_image = st.checkbox(
-        "Enlarge Image",
-        value=True,
-        help="Makes the product larger inside the canvas."
-    )
-
-    if enlarge_image:
-        zoom_percent = st.slider(
-            "Product Zoom (%)",
-            min_value=100,
-            max_value=400,
-            value=180,
-            step=5,
-            help="Increase product size inside the canvas."
+    if auto_fill_enabled:
+        fill_percent = st.slider(
+            "Product Fill Target (%)",
+            min_value=85,
+            max_value=95,
+            value=90,
+            step=1
         )
 
     margin_cm = st.number_input(
-        "Margin (in cm, on all sides)",
+        "Margin (cm)",
         min_value=0.0,
         max_value=10.0,
         value=0.5,
-        step=0.1,
-        help="Leave 0 for no margin."
+        step=0.1
     )
 
-preview_enabled = st.checkbox(
-    "Preview first 5 processed images",
-    value=True
-)
+amazon_check = st.checkbox("Amazon Compliance Checker", value=True)
+preview_enabled = st.checkbox("Preview first 5 processed images", value=True)
 
 def cm_to_pixels(cm, dpi):
     return int((cm / 2.54) * dpi)
@@ -131,23 +114,11 @@ def clean_folder(folder_path):
         shutil.rmtree(folder_path)
     os.makedirs(folder_path, exist_ok=True)
 
-def get_extension(output_format):
-    if output_format == "JPG":
-        return ".jpg"
-    if output_format == "PNG":
-        return ".png"
-    if output_format == "WEBP":
-        return ".webp"
-    return ".jpg"
+def get_extension(fmt):
+    return {"JPG": ".jpg", "PNG": ".png", "WEBP": ".webp"}[fmt]
 
-def get_pil_format(output_format):
-    if output_format == "JPG":
-        return "JPEG"
-    if output_format == "PNG":
-        return "PNG"
-    if output_format == "WEBP":
-        return "WEBP"
-    return "JPEG"
+def get_pil_format(fmt):
+    return {"JPG": "JPEG", "PNG": "PNG", "WEBP": "WEBP"}[fmt]
 
 def get_unique_filename(output_folder, base_name, ext):
     safe_name = "".join(c for c in str(base_name) if c not in r'\/:*?"<>|').strip()
@@ -165,10 +136,8 @@ def get_unique_filename(output_folder, base_name, ext):
 
 def crop_white_background(img, tolerance=245):
     img = img.convert("RGB")
-
     bg = Image.new("RGB", img.size, (255, 255, 255))
     diff = ImageChops.difference(img, bg).convert("L")
-
     mask = diff.point(lambda p: 255 if p > (255 - tolerance) else 0)
     bbox = mask.getbbox()
 
@@ -177,34 +146,65 @@ def crop_white_background(img, tolerance=245):
 
     return img
 
+def apply_rembg(img):
+    img_rgba = img.convert("RGBA")
+    output = remove(img_rgba)
+    return output.convert("RGBA")
+
+def paste_on_background(img, bg_rgb):
+    if img.mode == "RGBA":
+        canvas = Image.new("RGBA", img.size, bg_rgb + (255,))
+        canvas.alpha_composite(img)
+        return canvas.convert("RGB")
+    return img.convert("RGB")
+
+def get_product_bbox_on_canvas(img, bg_rgb):
+    rgb_img = img.convert("RGB")
+    bg = Image.new("RGB", rgb_img.size, bg_rgb)
+    diff = ImageChops.difference(rgb_img, bg).convert("L")
+    mask = diff.point(lambda p: 255 if p > 12 else 0)
+    return mask.getbbox()
+
+def amazon_compliance_result(img, output_format, bg_rgb):
+    width, height = img.size
+    bbox = get_product_bbox_on_canvas(img, bg_rgb)
+
+    product_fill = 0
+    if bbox:
+        product_w = bbox[2] - bbox[0]
+        product_h = bbox[3] - bbox[1]
+        product_fill = round((max(product_w / width, product_h / height)) * 100, 2)
+
+    issues = []
+
+    if width != height:
+        issues.append("Image is not square")
+
+    if width < 1000 or height < 1000:
+        issues.append("Image is below 1000px")
+
+    if product_fill < 85:
+        issues.append("Product fills less than 85% of canvas")
+
+    if bg_rgb != (255, 255, 255):
+        issues.append("Background is not pure white")
+
+    status = "Pass" if not issues else "Review"
+
+    return status, product_fill, "; ".join(issues) if issues else "Looks good"
+
 def save_image(img, out_path, output_format, output_dpi, quality):
     pil_format = get_pil_format(output_format)
 
     if output_format == "JPG":
         img = img.convert("RGB")
-        img.save(
-            out_path,
-            format=pil_format,
-            dpi=(output_dpi, output_dpi),
-            quality=quality,
-            optimize=True
-        )
+        img.save(out_path, format=pil_format, dpi=(output_dpi, output_dpi), quality=quality, optimize=True)
 
     elif output_format == "PNG":
-        img.save(
-            out_path,
-            format=pil_format,
-            dpi=(output_dpi, output_dpi),
-            optimize=True
-        )
+        img.save(out_path, format=pil_format, dpi=(output_dpi, output_dpi), optimize=True)
 
     elif output_format == "WEBP":
-        img.save(
-            out_path,
-            format=pil_format,
-            quality=quality,
-            method=6
-        )
+        img.save(out_path, format=pil_format, quality=quality, method=6)
 
 def process_image(
     image_source,
@@ -216,13 +216,19 @@ def process_image(
     output_dpi,
     resize_mode,
     crop_white,
-    enlarge_image,
-    zoom_percent,
+    auto_fill_enabled,
+    fill_percent,
     output_format,
     quality,
-    background_color
+    background_color,
+    remove_background
 ):
-    img = Image.open(image_source).convert("RGB")
+    img = Image.open(image_source)
+
+    if remove_background and REMBG_AVAILABLE:
+        img = apply_rembg(img)
+    else:
+        img = img.convert("RGB")
 
     ext = get_extension(output_format)
     base_name = os.path.splitext(str(file_name))[0]
@@ -231,40 +237,72 @@ def process_image(
     bg_rgb = hex_to_rgb(background_color)
 
     if resize_mode == "Resize with Padding":
-        if crop_white:
+        if crop_white and not remove_background:
             img = crop_white_background(img)
+
+        if remove_background:
+            bbox = img.getbbox()
+            if bbox:
+                img = img.crop(bbox)
 
         inner_width = max(1, output_width - 2 * margin_px)
         inner_height = max(1, output_height - 2 * margin_px)
 
-        img.thumbnail((inner_width, inner_height), Image.LANCZOS)
+        if auto_fill_enabled:
+            target_w = int(output_width * (fill_percent / 100))
+            target_h = int(output_height * (fill_percent / 100))
 
-        if enlarge_image:
-            scale = zoom_percent / 100
-            new_width = int(img.width * scale)
-            new_height = int(img.height * scale)
+            scale = min(target_w / img.width, target_h / img.height)
+            new_width = max(1, int(img.width * scale))
+            new_height = max(1, int(img.height * scale))
 
             img = img.resize((new_width, new_height), Image.LANCZOS)
 
             if img.width > inner_width or img.height > inner_height:
                 img.thumbnail((inner_width, inner_height), Image.LANCZOS)
+        else:
+            img.thumbnail((inner_width, inner_height), Image.LANCZOS)
 
-        canvas = Image.new("RGB", (output_width, output_height), bg_rgb)
+        if remove_background and output_format == "PNG":
+            canvas = Image.new("RGBA", (output_width, output_height), bg_rgb + (0,))
+            left = (output_width - img.width) // 2
+            top = (output_height - img.height) // 2
+            canvas.alpha_composite(img.convert("RGBA"), (left, top))
+            final_img = canvas
+        else:
+            canvas = Image.new("RGB", (output_width, output_height), bg_rgb)
+            left = (output_width - img.width) // 2
+            top = (output_height - img.height) // 2
 
-        left = (output_width - img.width) // 2
-        top = (output_height - img.height) // 2
+            if img.mode == "RGBA":
+                temp_bg = Image.new("RGB", img.size, bg_rgb)
+                temp_bg.paste(img, mask=img.split()[3])
+                img = temp_bg
+            else:
+                img = img.convert("RGB")
 
-        canvas.paste(img, (left, top))
-        save_image(canvas, out_path, output_format, output_dpi, quality)
+            canvas.paste(img, (left, top))
+            final_img = canvas
 
     else:
-        if crop_white:
+        if crop_white and not remove_background:
             img = crop_white_background(img)
 
-        img.thumbnail((output_width, output_height), Image.LANCZOS)
-        save_image(img, out_path, output_format, output_dpi, quality)
+        if remove_background:
+            bbox = img.getbbox()
+            if bbox:
+                img = img.crop(bbox)
 
-    return out_path
+        img.thumbnail((output_width, output_height), Image.LANCZOS)
+
+        if img.mode == "RGBA" and output_format != "PNG":
+            final_img = paste_on_background(img, bg_rgb)
+        else:
+            final_img = img
+
+    save_image(final_img, out_path, output_format, output_dpi, quality)
+
+    return out_path, final_img
 
 st.divider()
 
@@ -282,6 +320,7 @@ if st.button("🚀 Process Images"):
     margin_px = cm_to_pixels(margin_cm, output_dpi)
 
     failed_report = []
+    compliance_report = []
     preview_images = []
 
     df = None
@@ -312,10 +351,35 @@ if st.button("🚀 Process Images"):
     progress_bar = st.progress(0, text="Starting image processing...")
     current_step = 0
 
+    def handle_processed_image(out_path, final_img, file_name, source, link=""):
+        nonlocal_data = None
+
+        if amazon_check:
+            status, product_fill, issues = amazon_compliance_result(
+                final_img,
+                output_format,
+                hex_to_rgb(background_color)
+            )
+
+            compliance_report.append({
+                "FileName": file_name,
+                "Source": source,
+                "Link": link,
+                "Width": final_img.size[0],
+                "Height": final_img.size[1],
+                "OutputFormat": output_format,
+                "ProductFillPercent": product_fill,
+                "AmazonStatus": status,
+                "Notes": issues
+            })
+
+        if len(preview_images) < 5:
+            preview_images.append(out_path)
+
     if uploaded_images:
         for img_file in uploaded_images:
             try:
-                out_path = process_image(
+                out_path, final_img = process_image(
                     img_file,
                     img_file.name,
                     margin_px,
@@ -325,17 +389,16 @@ if st.button("🚀 Process Images"):
                     int(output_dpi),
                     resize_mode,
                     crop_white,
-                    enlarge_image,
-                    zoom_percent,
+                    auto_fill_enabled,
+                    fill_percent,
                     output_format,
                     quality,
-                    background_color
+                    background_color,
+                    remove_background
                 )
 
                 images_processed += 1
-
-                if len(preview_images) < 5:
-                    preview_images.append(out_path)
+                handle_processed_image(out_path, final_img, img_file.name, "Direct Upload")
 
             except Exception as e:
                 st.warning(f"⚠️ Failed uploaded image `{img_file.name}`: {e}")
@@ -363,7 +426,7 @@ if st.button("🚀 Process Images"):
 
                             img_bytes = BytesIO(response.content)
 
-                            out_path = process_image(
+                            out_path, final_img = process_image(
                                 img_bytes,
                                 filename,
                                 margin_px,
@@ -373,17 +436,16 @@ if st.button("🚀 Process Images"):
                                 int(output_dpi),
                                 resize_mode,
                                 crop_white,
-                                enlarge_image,
-                                zoom_percent,
+                                auto_fill_enabled,
+                                fill_percent,
                                 output_format,
                                 quality,
-                                background_color
+                                background_color,
+                                remove_background
                             )
 
                             images_processed += 1
-
-                            if len(preview_images) < 5:
-                                preview_images.append(out_path)
+                            handle_processed_image(out_path, final_img, filename, "Excel Link", link)
 
                         except Exception as e:
                             st.warning(f"⚠️ Failed: `{filename}` from `{link}`: {e}")
@@ -406,17 +468,28 @@ if st.button("🚀 Process Images"):
                 "Error": str(e)
             })
 
-    failed_csv_path = None
-
     if failed_report:
         failed_df = pd.DataFrame(failed_report)
-        failed_csv_path = os.path.join(output_folder, "failed_image_report.csv")
-        failed_df.to_csv(failed_csv_path, index=False)
+        failed_df.to_csv(os.path.join(output_folder, "failed_image_report.csv"), index=False)
+
+    if compliance_report:
+        compliance_df = pd.DataFrame(compliance_report)
+        compliance_df.to_csv(os.path.join(output_folder, "amazon_compliance_report.csv"), index=False)
 
     if preview_enabled and preview_images:
         st.subheader("Preview of Processed Images")
         for preview_path in preview_images:
             st.image(preview_path, caption=os.path.basename(preview_path), use_container_width=True)
+
+    if amazon_check and compliance_report:
+        st.subheader("Amazon Compliance Summary")
+        compliance_df = pd.DataFrame(compliance_report)
+        st.dataframe(compliance_df, use_container_width=True)
+
+        pass_count = len(compliance_df[compliance_df["AmazonStatus"] == "Pass"])
+        review_count = len(compliance_df[compliance_df["AmazonStatus"] == "Review"])
+
+        st.info(f"✅ Pass: {pass_count} | ⚠️ Review: {review_count}")
 
     if images_processed > 0:
         zip_path = shutil.make_archive(zip_base_name, "zip", output_folder)
@@ -432,7 +505,6 @@ if st.button("🚀 Process Images"):
             file_name="downloaded_images.zip",
             mime="application/zip"
         )
-
     else:
         st.info("No images processed yet. Upload/select files and try again!")
 
@@ -440,7 +512,7 @@ if st.button("🚀 Process Images"):
         failed_df = pd.DataFrame(failed_report)
         csv_data = failed_df.to_csv(index=False).encode("utf-8")
 
-        st.warning(f"⚠️ {len(failed_report)} image(s) failed. Download failed report below.")
+        st.warning(f"⚠️ {len(failed_report)} image(s) failed.")
 
         st.download_button(
             "⬇️ Download Failed Image Report",
