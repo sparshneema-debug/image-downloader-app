@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import os
-from PIL import Image
+from PIL import Image, ImageChops
 from io import BytesIO
 import shutil
 
@@ -56,9 +56,16 @@ resize_mode = st.radio(
     horizontal=True
 )
 
+enlarge_image = False
 margin_cm = 0.0
 
 if resize_mode == "Resize with Padding":
+    enlarge_image = st.checkbox(
+        "Enlarge Image",
+        value=True,
+        help="Removes extra white space around the product before resizing, so the product appears larger."
+    )
+
     margin_cm = st.number_input(
         "Margin (in cm, on all sides)",
         min_value=0.0,
@@ -90,6 +97,22 @@ def get_unique_filename(output_folder, base_name, ext=".jpg"):
 
     return file_path
 
+def crop_white_background(img, tolerance=245):
+    img = img.convert("RGB")
+
+    bg = Image.new("RGB", img.size, (255, 255, 255))
+    diff = ImageChops.difference(img, bg)
+
+    diff = diff.convert("L")
+    diff = diff.point(lambda p: 255 if p < tolerance else 0)
+
+    bbox = diff.getbbox()
+
+    if bbox:
+        return img.crop(bbox)
+
+    return img
+
 def process_image(
     image_source,
     file_name,
@@ -98,7 +121,8 @@ def process_image(
     output_width,
     output_height,
     output_dpi,
-    resize_mode
+    resize_mode,
+    enlarge_image
 ):
     img = Image.open(image_source).convert("RGB")
 
@@ -106,6 +130,9 @@ def process_image(
     out_path = get_unique_filename(output_folder, base_name, ".jpg")
 
     if resize_mode == "Resize with Padding":
+        if enlarge_image:
+            img = crop_white_background(img)
+
         inner_width = max(1, output_width - 2 * margin_px)
         inner_height = max(1, output_height - 2 * margin_px)
 
@@ -174,7 +201,8 @@ if st.button("🚀 Process Images"):
                     int(output_width),
                     int(output_height),
                     int(output_dpi),
-                    resize_mode
+                    resize_mode,
+                    enlarge_image
                 )
                 images_processed += 1
             except Exception as e:
@@ -204,7 +232,8 @@ if st.button("🚀 Process Images"):
                                 int(output_width),
                                 int(output_height),
                                 int(output_dpi),
-                                resize_mode
+                                resize_mode,
+                                enlarge_image
                             )
                             images_processed += 1
                         except Exception as e:
