@@ -57,14 +57,25 @@ resize_mode = st.radio(
 )
 
 enlarge_image = False
+zoom_percent = 100
 margin_cm = 0.0
 
 if resize_mode == "Resize with Padding":
     enlarge_image = st.checkbox(
         "Enlarge Image",
         value=True,
-        help="Removes extra white space around the product before resizing, so the product appears larger."
+        help="Removes extra white space around the product before resizing."
     )
+
+    if enlarge_image:
+        zoom_percent = st.slider(
+            "Product Zoom (%)",
+            min_value=100,
+            max_value=400,
+            value=180,
+            step=5,
+            help="Increase product size inside the canvas."
+        )
 
     margin_cm = st.number_input(
         "Margin (in cm, on all sides)",
@@ -104,7 +115,7 @@ def crop_white_background(img, tolerance=245):
     diff = ImageChops.difference(img, bg)
 
     diff = diff.convert("L")
-    diff = diff.point(lambda p: 255 if p < tolerance else 0)
+    diff = diff.point(lambda p: 0 if p < (255 - tolerance) else 255)
 
     bbox = diff.getbbox()
 
@@ -122,7 +133,8 @@ def process_image(
     output_height,
     output_dpi,
     resize_mode,
-    enlarge_image
+    enlarge_image,
+    zoom_percent
 ):
     img = Image.open(image_source).convert("RGB")
 
@@ -137,6 +149,17 @@ def process_image(
         inner_height = max(1, output_height - 2 * margin_px)
 
         img.thumbnail((inner_width, inner_height), Image.LANCZOS)
+
+        if enlarge_image:
+            scale = zoom_percent / 100
+
+            new_width = int(img.width * scale)
+            new_height = int(img.height * scale)
+
+            img = img.resize((new_width, new_height), Image.LANCZOS)
+
+            if img.width > inner_width or img.height > inner_height:
+                img.thumbnail((inner_width, inner_height), Image.LANCZOS)
 
         canvas = Image.new("RGB", (output_width, output_height), (255, 255, 255))
 
@@ -202,7 +225,8 @@ if st.button("🚀 Process Images"):
                     int(output_height),
                     int(output_dpi),
                     resize_mode,
-                    enlarge_image
+                    enlarge_image,
+                    zoom_percent
                 )
                 images_processed += 1
             except Exception as e:
@@ -233,7 +257,8 @@ if st.button("🚀 Process Images"):
                                 int(output_height),
                                 int(output_dpi),
                                 resize_mode,
-                                enlarge_image
+                                enlarge_image,
+                                zoom_percent
                             )
                             images_processed += 1
                         except Exception as e:
