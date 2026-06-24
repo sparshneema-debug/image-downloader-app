@@ -10,13 +10,9 @@ st.set_page_config(page_title="Complete Image Tool", layout="centered")
 
 st.title("🖼️ Complete Image Downloader & Converter")
 
-st.write(
-    "Upload images directly or upload an Excel file with image links. "
-    "Resize, crop, convert format, preview, and download ZIP."
-)
+st.write("Upload images directly or upload an Excel file with image links. Resize, crop, convert, preview, and download ZIP.")
 
 st.header("① Directly Upload Images")
-
 uploaded_images = st.file_uploader(
     "Upload images",
     type=["jpg", "jpeg", "png", "webp", "bmp", "tiff"],
@@ -24,11 +20,7 @@ uploaded_images = st.file_uploader(
 )
 
 st.header("② Or Upload Excel File with Image Links")
-
-uploaded_file = st.file_uploader(
-    "Excel file (.xlsx)",
-    type=["xlsx"]
-)
+uploaded_file = st.file_uploader("Excel file (.xlsx)", type=["xlsx"])
 
 image_url_column = st.text_input("Image URL Column Name", value="Image URL")
 filename_column = st.text_input("Filename Column Name", value="Filename")
@@ -43,10 +35,33 @@ output_format = st.selectbox("Output Format", ["JPG", "PNG", "WEBP"])
 quality = st.slider("Image Quality", min_value=40, max_value=100, value=95)
 background_color = st.color_picker("Background Color", "#FFFFFF")
 
+resize_mode = st.radio(
+    "Image Processing Mode",
+    ["Resize with Padding", "Resize without Padding"],
+    horizontal=True
+)
+
 crop_white = st.checkbox("Crop White Background", value=True)
+
+auto_fill_enabled = False
+fill_percent = 90
+margin_cm = 0.5
+
+if resize_mode == "Resize with Padding":
+    auto_fill_enabled = st.checkbox("Auto Fill Canvas", value=True)
+
+    if auto_fill_enabled:
+        fill_percent = st.slider("Product Fill Target (%)", 85, 95, 90, 1)
+
+    margin_cm = st.number_input("Margin (cm)", min_value=0.0, max_value=10.0, value=0.5, step=0.1)
+
 preview_enabled = st.checkbox("Preview first 5 processed images", value=True)
 
 process_button = st.button("🚀 Process Images")
+
+
+def cm_to_pixels(cm, dpi):
+    return int((cm / 2.54) * dpi)
 
 
 def hex_to_rgb(hex_color):
@@ -68,6 +83,16 @@ def get_pil_format(fmt):
     return {"JPG": "JPEG", "PNG": "PNG", "WEBP": "WEBP"}[fmt]
 
 
+def safe_filename(name):
+    name = os.path.splitext(str(name))[0]
+    name = "".join(c for c in name if c not in r'\/:*?"<>|').strip()
+
+    if not name or name.lower() == "nan":
+        name = "image"
+
+    return name
+
+
 def crop_white_background(img):
     img = img.convert("RGB")
     bg = Image.new("RGB", img.size, (255, 255, 255))
@@ -78,16 +103,6 @@ def crop_white_background(img):
         return img.crop(bbox)
 
     return img
-
-
-def safe_filename(name):
-    name = os.path.splitext(str(name))[0]
-    name = "".join(c for c in name if c not in r'\/:*?"<>|').strip()
-
-    if not name or name.lower() == "nan":
-        name = "image"
-
-    return name
 
 
 def save_image(img, path, fmt, dpi, quality):
@@ -105,24 +120,9 @@ def save_image(img, path, fmt, dpi, quality):
         img.save(path, format=pil_format, quality=quality, method=6)
 
 
-def process_image(image_source, file_name, output_folder):
-    img = Image.open(image_source).convert("RGB")
-
-    if crop_white:
-        img = crop_white_background(img)
-
-    img.thumbnail((int(output_width), int(output_height)), Image.LANCZOS)
-
-    bg_rgb = hex_to_rgb(background_color)
-    canvas = Image.new("RGB", (int(output_width), int(output_height)), bg_rgb)
-
-    left = (int(output_width) - img.width) // 2
-    top = (int(output_height) - img.height) // 2
-
-    canvas.paste(img, (left, top))
-
-    ext = get_extension(output_format)
+def get_unique_output_path(output_folder, file_name, fmt):
     base_name = safe_filename(file_name)
+    ext = get_extension(fmt)
 
     output_path = os.path.join(output_folder, base_name + ext)
     counter = 1
@@ -131,7 +131,52 @@ def process_image(image_source, file_name, output_folder):
         output_path = os.path.join(output_folder, f"{base_name}_{counter}{ext}")
         counter += 1
 
-    save_image(canvas, output_path, output_format, int(output_dpi), quality)
+    return output_path
+
+
+def process_image(image_source, file_name, output_folder):
+    img = Image.open(image_source).convert("RGB")
+
+    if crop_white:
+        img = crop_white_background(img)
+
+    bg_rgb = hex_to_rgb(background_color)
+    output_path = get_unique_output_path(output_folder, file_name, output_format)
+
+    if resize_mode == "Resize with Padding":
+        margin_px = cm_to_pixels(margin_cm, int(output_dpi))
+
+        inner_width = max(1, int(output_width) - 2 * margin_px)
+        inner_height = max(1, int(output_height) - 2 * margin_px)
+
+        if auto_fill_enabled:
+            target_w = int(output_width * (fill_percent / 100))
+            target_h = int(output_height * (fill_percent / 100))
+
+            scale = min(target_w / img.width, target_h / img.height)
+            new_width = max(1, int(img.width * scale))
+            new_height = max(1, int(img.height * scale))
+
+            img = img.resize((new_width, new_height), Image.LANCZOS)
+
+            if img.width > inner_width or img.height > inner_height:
+                img.thumbnail((inner_width, inner_height), Image.LANCZOS)
+        else:
+            img.thumbnail((inner_width, inner_height), Image.LANCZOS)
+
+        canvas = Image.new("RGB", (int(output_width), int(output_height)), bg_rgb)
+
+        left = (int(output_width) - img.width) // 2
+        top = (int(output_height) - img.height) // 2
+
+        canvas.paste(img, (left, top))
+        final_img = canvas
+
+    else:
+        img.thumbnail((int(output_width), int(output_height)), Image.LANCZOS)
+        final_img = img
+
+    save_image(final_img, output_path, output_format, int(output_dpi), quality)
 
     return output_path
 
@@ -164,9 +209,16 @@ if process_button:
             else:
                 for index, row in df.iterrows():
                     link = row.get(image_url_column)
-                    file_name = row.get(filename_column, f"image_{index + 1}")
+
+                    if filename_column in df.columns:
+                        file_name = row.get(filename_column)
+                    else:
+                        file_name = f"image_{index + 1}"
 
                     try:
+                        if pd.isna(link) or str(link).strip() == "":
+                            raise Exception("Empty image URL")
+
                         response = requests.get(str(link), timeout=20)
                         response.raise_for_status()
 
