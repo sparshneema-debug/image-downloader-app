@@ -10,16 +10,32 @@ st.set_page_config(page_title="Complete Image Tool", layout="centered")
 
 st.title("🖼️ Complete Image Downloader & Converter")
 
-st.write("Upload images directly or upload an Excel file with image links. Resize, crop, convert, preview, and download ZIP.")
+st.write(
+    "Upload images directly or upload an Excel file with image links. "
+    "Resize, crop, convert, preview, and download ZIP."
+)
+
+MAX_IMAGES = 100
+MAX_EXCEL_ROWS = 100
 
 st.header("① Directly Upload Images")
+
 uploaded_images = st.file_uploader(
     "Upload images",
     type=["jpg", "jpeg", "png", "webp", "bmp", "tiff"],
     accept_multiple_files=True
 )
 
+if uploaded_images and len(uploaded_images) > MAX_IMAGES:
+    st.error(
+        f"❌ You uploaded {len(uploaded_images)} images.\n\n"
+        f"Maximum allowed is {MAX_IMAGES} images at a time.\n\n"
+        f"Please split your upload into smaller batches."
+    )
+    st.stop()
+
 st.header("② Or Upload Excel File with Image Links")
+
 uploaded_file = st.file_uploader("Excel file (.xlsx)", type=["xlsx"])
 
 image_url_column = st.text_input("Image URL Column Name", value="Image URL")
@@ -53,7 +69,13 @@ if resize_mode == "Resize with Padding":
     if auto_fill_enabled:
         fill_percent = st.slider("Product Fill Target (%)", 85, 95, 90, 1)
 
-    margin_cm = st.number_input("Margin (cm)", min_value=0.0, max_value=10.0, value=0.5, step=0.1)
+    margin_cm = st.number_input(
+        "Margin (cm)",
+        min_value=0.0,
+        max_value=10.0,
+        value=0.5,
+        step=0.1
+    )
 
 preview_enabled = st.checkbox("Preview first 5 processed images", value=True)
 
@@ -154,6 +176,7 @@ def process_image(image_source, file_name, output_folder):
             target_h = int(output_height * (fill_percent / 100))
 
             scale = min(target_w / img.width, target_h / img.height)
+
             new_width = max(1, int(img.width * scale))
             new_height = max(1, int(img.height * scale))
 
@@ -161,6 +184,7 @@ def process_image(image_source, file_name, output_folder):
 
             if img.width > inner_width or img.height > inner_height:
                 img.thumbnail((inner_width, inner_height), Image.LANCZOS)
+
         else:
             img.thumbnail((inner_width, inner_height), Image.LANCZOS)
 
@@ -193,6 +217,7 @@ if process_button:
             try:
                 output_path = process_image(img_file, img_file.name, output_folder)
                 processed_files.append(output_path)
+
             except Exception as e:
                 failed_rows.append({
                     "FileName": img_file.name,
@@ -204,8 +229,17 @@ if process_button:
         try:
             df = pd.read_excel(uploaded_file)
 
+            if len(df) > MAX_EXCEL_ROWS:
+                st.error(
+                    f"❌ Excel contains {len(df)} rows.\n\n"
+                    f"Maximum allowed is {MAX_EXCEL_ROWS} rows at a time.\n\n"
+                    f"Please split the Excel file into smaller batches."
+                )
+                st.stop()
+
             if image_url_column not in df.columns:
                 st.error(f"Column '{image_url_column}' not found in Excel.")
+
             else:
                 for index, row in df.iterrows():
                     link = row.get(image_url_column)
@@ -254,6 +288,7 @@ if process_button:
                 file_name="downloaded_images.zip",
                 mime="application/zip"
             )
+
     else:
         st.warning("No images processed.")
 
