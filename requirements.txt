@@ -3,5 +3,3 @@ pandas
 requests
 pillow
 openpyxl
-rembg
-onnxruntime
